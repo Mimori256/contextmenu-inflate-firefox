@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Firefox Event Timing Repro: Native Context Menu Inflates Duration</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    }
+
+    body {
+      margin: 2rem;
+      line-height: 1.5;
+      max-width: 920px;
+    }
+
+    h1 {
+      margin-top: 0;
+      line-height: 1.25;
+    }
+
+    .panel {
+      border: 1px solid #8885;
+      border-radius: 10px;
+      padding: 1rem;
+      margin: 1rem 0;
+    }
+
+    #target {
+      min-height: 160px;
+      display: grid;
+      place-items: center;
+      font-size: 1.05rem;
+      user-select: none;
+      cursor: context-menu;
+      background:
+        repeating-linear-gradient(
+          45deg,
+          #8882 0 14px,
+          transparent 14px 28px
+        );
+    }
+
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.92rem;
+    }
+
+    button {
+      font: inherit;
+      padding: 0.45rem 0.8rem;
+      border-radius: 8px;
+      border: 1px solid #8888;
+      background: transparent;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>Firefox Repro: Native Context Menu Inflates Event Timing Duration</h1>
+
+  <div class="panel">
+    <strong>Goal:</strong>
+    Demonstrate that in Firefox, opening the native context menu can inflate
+    <code>PerformanceEventTiming.duration</code> (and therefore INP candidate values)
+    by roughly the amount of time the menu stays open.
+  </div>
+
+  <div class="panel">
+    <strong>How to reproduce:</strong>
+    <ol>
+      <li>Open this file in Firefox.</li>
+      <li>Open DevTools Console (optional; logs are also shown on this page).</li>
+      <li>Right-click inside the striped box below.</li>
+      <li>Keep the native context menu open for 1-2 seconds. Do not move the mouse cursor while the menu is open.</li>
+      <li>Close the context menu and observe logged entries.</li>
+      <li>In the observed entries, the <code>presentationDelay</code> should be roughly the amount of time the menu was open (unless you moved the cursor while the menu was open)</li>
+    </ol>
+  </div>
+
+  <div id="target" class="panel" aria-label="right click target">
+    Right-click here and keep the native menu open for ~2 seconds.
+  </div>
+
+  <div class="panel">
+    <button id="clear">Clear logs</button>
+  </div>
+
+  <div class="panel">
+    <strong>Observed entries (pointerup/contextmenu):</strong>
+    <pre id="log">Waiting for interactions...</pre>
+  </div>
+
+  <script>
+    const logEl = document.getElementById('log');
+    const clearBtn = document.getElementById('clear');
+    const target = document.getElementById('target');
+
+    function appendLog(line) {
+      if (logEl.textContent === 'Waiting for interactions...') {
+        logEl.textContent = '';
+      }
+      logEl.textContent += `${line}\n`;
+    }
+
+    function format(ms) {
+      return Number(ms).toFixed(1);
+    }
+
+    // Keep lightweight handlers so processing time stays small.
+    target.addEventListener('contextmenu', () => {});
+    target.addEventListener('pointerup', () => {});
+
+    clearBtn.addEventListener('click', () => {
+      logEl.textContent = 'Waiting for interactions...';
+    });
+
+    new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        if (!['pointerup', 'contextmenu'].includes(entry.name)) continue;
+
+        const processingDuration = entry.processingEnd - entry.processingStart;
+        const presentationDelay =
+          (entry.startTime + entry.duration) - entry.processingEnd;
+
+        const line =
+          `[${entry.name}] ` +
+          `start=${format(entry.startTime)}ms ` +
+          `duration=${format(entry.duration)}ms ` +
+          `processingDuration=${format(processingDuration)}ms ` +
+          `presentationDelay=${format(presentationDelay)}ms ` +
+          `interactionId=${entry.interactionId}`;
+
+        appendLog(line);
+        console.log(line);
+      }
+    }).observe({ type: 'event', buffered: true, durationThreshold: 0 });
+  </script>
+</body>
+</html>
